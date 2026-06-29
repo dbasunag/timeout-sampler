@@ -82,7 +82,18 @@ class TimeoutSampler:
         print_log (bool): Print elapsed time to log.
         print_func_log (bool): Add function call info to log
         print_func_args (bool): Include function arguments in log when print_func_log is True
+        sensitive_keys (frozenset[str]): Additional keys to redact from logged kwargs (case-insensitive).
+            Merged with the default sensitive keys (authorization, token, password, secret, api_key).
     """
+
+    _DEFAULT_SENSITIVE_KEYS: frozenset[str] = frozenset({
+        "authorization",
+        "token",
+        "password",
+        "secret",
+        "api_key",
+        "apikey",
+    })
 
     def __init__(
         self,
@@ -93,6 +104,7 @@ class TimeoutSampler:
         print_log: bool = True,
         print_func_log: bool = True,
         print_func_args: bool = True,
+        sensitive_keys: frozenset[str] | None = None,
         func_args: tuple[Any] | None = None,
         **func_kwargs: Any,
     ):
@@ -104,6 +116,11 @@ class TimeoutSampler:
         self.print_log = print_log
         self.print_func_log = print_func_log
         self.print_func_args = print_func_args
+        self.sensitive_keys = (
+            self._DEFAULT_SENSITIVE_KEYS | frozenset(key.lower() for key in sensitive_keys)
+            if sensitive_keys
+            else self._DEFAULT_SENSITIVE_KEYS
+        )
         self.exceptions_dict = exceptions_dict if exceptions_dict is not None else {Exception: []}
 
     def _get_func_info(self, _func: Callable, type_: str) -> Any:
@@ -124,10 +141,22 @@ class TimeoutSampler:
                     return f"lambda: {free_vars_str}{'.'.join(_func.__code__.co_names)}"
             return res
 
+    def _redact(self, data: Any) -> Any:
+        """Recursively redact values whose keys exactly match sensitive keys (case-insensitive)."""
+        if isinstance(data, dict):
+            return {
+                key: "***" if key.lower() in self.sensitive_keys else self._redact(value) for key, value in data.items()
+            }
+        if isinstance(data, (list, tuple)):
+            return type(data)(self._redact(item) for item in data)
+        return data
+
     @property
     def _func_log(self) -> str:
-        _func_kwargs = f"Kwargs: {self.func_kwargs}" if (self.print_func_args and self.func_kwargs) else ""
-        _func_args = f"Args: {self.func_args}" if (self.print_func_args and self.func_args) else ""
+        _func_kwargs = (
+            f"Kwargs: {self._redact(self.func_kwargs)}" if (self.print_func_args and self.func_kwargs) else ""
+        )
+        _func_args = f"Args: {self._redact(self.func_args)}" if (self.print_func_args and self.func_args) else ""
         _func_module = self._get_func_info(_func=self.func, type_="__module__")
         _func_name = self._get_func_info(_func=self.func, type_="__name__")
         return f"Function: {_func_module}.{_func_name} {_func_args} {_func_kwargs}".strip()
@@ -264,6 +293,7 @@ def retry(
     print_log: bool = True,
     print_func_log: bool = True,
     print_func_args: bool = True,
+    sensitive_keys: frozenset[str] | None = None,
 ) -> Callable:
     """
     Decorator for TimeoutSampler, For usage see TimeoutSampler.
@@ -286,6 +316,7 @@ def retry(
                 print_log=print_log,
                 print_func_log=print_func_log,
                 print_func_args=print_func_args,
+                sensitive_keys=sensitive_keys,
                 func_args=args,
                 **kwargs,
             ):

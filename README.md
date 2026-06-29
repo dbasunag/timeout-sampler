@@ -75,6 +75,30 @@ for sample in TimeoutSampler(
         return
 
 
+# Sensitive kwargs (Authorization, token, password, etc.) are automatically
+# redacted from log output. You can customize which keys are redacted:
+for sample in TimeoutSampler(
+    wait_timeout=60,
+    sleep=1,
+    func=make_request,
+    headers={"Authorization": "Bearer my-secret-token"},
+):
+    if sample:
+        break
+# Log output will show: Kwargs: {'headers': {'Authorization': '***'}}
+
+# To add custom sensitive keys (merged with defaults):
+for sample in TimeoutSampler(
+    wait_timeout=60,
+    sleep=1,
+    func=call_api,
+    sensitive_keys=frozenset({"Authorization", "x-custom-secret"}),
+    headers={"Authorization": "Bearer token", "x-custom-secret": "value"},  # pragma: allowlist secret
+):
+    if sample:
+        break
+
+
 # Use as decorator. (Any argument that TimeoutSampler accepts will be passed to the decorated function)
 from timeout_sampler import retry
 

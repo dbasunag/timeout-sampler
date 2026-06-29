@@ -193,3 +193,104 @@ def test_decorator():
 def test_decorator_negative():
     with pytest.raises(TimeoutExpiredError):
         never_succeeds()
+
+
+class TestSensitiveKeyRedaction:
+    @pytest.mark.parametrize(
+        "sampler_kwargs, must_not_contain, must_contain",
+        [
+            pytest.param(
+                {"headers": {"Authorization": "Bearer secret-token", "Content-Type": "application/json"}},
+                ["secret-token"],
+                ["***", "application/json"],
+                id="test_default_authorization_redacted",
+            ),
+            pytest.param(
+                {"config": {"api_key": "my-api-key", "timeout": 30}},  # pragma: allowlist secret
+                ["my-api-key"],
+                ["***", "30"],
+                id="test_nested_api_key_redacted",
+            ),
+            pytest.param(
+                {"data": {"password": "hunter2", "username": "admin"}},  # pragma: allowlist secret
+                ["hunter2"],
+                ["***", "admin"],
+                id="test_password_redacted",
+            ),
+            pytest.param(
+                {
+                    "sensitive_keys": frozenset({"my_secret_field"}),
+                    "my_secret_field": "top-secret",  # pragma: allowlist secret
+                    "safe_field": "visible",
+                },
+                ["top-secret"],
+                ["visible"],
+                id="test_custom_sensitive_keys",
+            ),
+            pytest.param(
+                {
+                    "sensitive_keys": frozenset({"x-custom-secret"}),
+                    "headers": {
+                        "Authorization": "Bearer default-secret",  # pragma: allowlist secret
+                        "x-custom-secret": "custom-value",  # pragma: allowlist secret
+                    },
+                },
+                ["default-secret", "custom-value"],
+                ["***"],
+                id="test_custom_keys_merged_with_defaults",
+            ),
+            pytest.param(
+                {"args_list": [{"token": "secret-in-list"}]},  # pragma: allowlist secret
+                ["secret-in-list"],
+                ["***"],
+                id="test_sensitive_key_in_list_of_dicts",
+            ),
+            pytest.param(
+                {
+                    "sensitive_keys": frozenset(),
+                    "headers": {"Authorization": "Bearer still-redacted"},
+                },
+                ["still-redacted"],
+                ["***"],
+                id="test_empty_sensitive_keys_still_uses_defaults",
+            ),
+            pytest.param(
+                {
+                    "print_func_args": False,
+                    "headers": {"Authorization": "Bearer secret"},
+                },
+                ["secret", "Kwargs"],
+                [],
+                id="test_print_func_args_false_hides_everything",
+            ),
+            pytest.param(
+                {"pagination": {"nextPageToken": "abc123", "token_count": 42, "Authorization": "Bearer redact-me"}},
+                ["redact-me"],
+                ["abc123", "42", "nextPageToken", "token_count"],
+                id="test_similar_named_keys_not_redacted",
+            ),
+            pytest.param(
+                {"headers": {"AUTHORIZATION": "Bearer upper-secret", "Content-Type": "text/plain"}},
+                ["upper-secret"],
+                ["***", "text/plain"],
+                id="test_uppercase_key_redacted",
+            ),
+            pytest.param(
+                {
+                    "sensitive_keys": frozenset({"X-My-Token"}),
+                    "headers": {"X-My-Token": "custom-upper"},  # pragma: allowlist secret
+                },
+                ["custom-upper"],
+                ["***"],
+                id="test_custom_key_case_insensitive",
+            ),
+        ],
+    )
+    def test_sensitive_key_redaction(self, sampler_kwargs, must_not_contain, must_contain):
+        """Sensitive kwargs should be redacted from log output based on configuration."""
+        sampler = TimeoutSampler(wait_timeout=1, sleep=1, func=lambda: True, print_log=False, **sampler_kwargs)
+        log_output = sampler._func_log
+        for value in must_not_contain:
+            assert value not in log_output, f"Value {value!r} should not appear in log"
+        for value in must_contain:
+            assert value in log_output, f"Value {value!r} should appear in log"
