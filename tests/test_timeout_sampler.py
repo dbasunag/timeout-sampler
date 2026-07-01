@@ -294,3 +294,17 @@ class TestSensitiveKeyRedaction:
             assert value not in log_output, f"Value {value!r} should not appear in log"
         for value in must_contain:
             assert value in log_output, f"Value {value!r} should appear in log"
+
+    def test_positional_args_redacted(self):
+        """Sensitive keys in dicts passed as positional args should be redacted."""
+        sampler = TimeoutSampler(
+            wait_timeout=1,
+            sleep=1,
+            func=lambda *args: True,
+            print_log=False,
+            func_args=({"Authorization": "Bearer pos-secret", "safe": "visible"},),  # pragma: allowlist secret
+        )
+        log_output = sampler._func_log
+        assert "pos-secret" not in log_output, "Positional arg secret should be redacted"
+        assert "visible" in log_output, "Non-sensitive positional arg should be visible"
+        assert "***" in log_output, "Redacted placeholder should appear"

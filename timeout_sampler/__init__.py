@@ -82,8 +82,9 @@ class TimeoutSampler:
         print_log (bool): Print elapsed time to log.
         print_func_log (bool): Add function call info to log
         print_func_args (bool): Include function arguments in log when print_func_log is True
-        sensitive_keys (frozenset[str]): Additional keys to redact from logged kwargs (case-insensitive).
-            Merged with the default sensitive keys (authorization, token, password, secret, api_key).
+        sensitive_keys (frozenset[str]): Additional keys to redact from logged kwargs (case-insensitive exact match).
+            Merged with the default sensitive keys (authorization, token, password, secret, api_key, apikey).
+            Note: "token" matches any key named exactly "token" (any case) — keys like "nextPageToken" are not affected.
     """
 
     _DEFAULT_SENSITIVE_KEYS: frozenset[str] = frozenset({
@@ -117,8 +118,8 @@ class TimeoutSampler:
         self.print_func_log = print_func_log
         self.print_func_args = print_func_args
         self.sensitive_keys = (
-            self._DEFAULT_SENSITIVE_KEYS | frozenset(key.lower() for key in sensitive_keys)
-            if sensitive_keys
+            (self._DEFAULT_SENSITIVE_KEYS | frozenset(key.lower() for key in sensitive_keys))
+            if sensitive_keys is not None
             else self._DEFAULT_SENSITIVE_KEYS
         )
         self.exceptions_dict = exceptions_dict if exceptions_dict is not None else {Exception: []}
@@ -143,12 +144,18 @@ class TimeoutSampler:
 
     def _redact(self, data: Any) -> Any:
         """Recursively redact values whose keys exactly match sensitive keys (case-insensitive)."""
-        if isinstance(data, dict):
-            return {
-                key: "***" if key.lower() in self.sensitive_keys else self._redact(value) for key, value in data.items()
-            }
-        if isinstance(data, (list, tuple)):
-            return type(data)(self._redact(item) for item in data)
+        try:
+            if isinstance(data, dict):
+                return {
+                    key: "***" if key.lower() in self.sensitive_keys else self._redact(value)
+                    for key, value in data.items()
+                }
+            if isinstance(data, list):
+                return [self._redact(item) for item in data]
+            if isinstance(data, tuple):
+                return tuple(self._redact(item) for item in data)
+        except RecursionError:
+            return "<redaction failed: circular reference>"
         return data
 
     @property
