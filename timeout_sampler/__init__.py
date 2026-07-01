@@ -83,13 +83,14 @@ class TimeoutSampler:
         print_func_log (bool): Add function call info to log
         print_func_args (bool): Include function arguments in log when print_func_log is True
         sensitive_keys (frozenset[str]): Additional keys to redact from logged kwargs (case-insensitive exact match).
-            Merged with the default sensitive keys (authorization, token, password, secret, api_key, apikey).
+            Merged with the default sensitive keys (authorization, token, access_token, password, secret, api_key, apikey).
             Note: "token" matches any key named exactly "token" (any case) — keys like "nextPageToken" are not affected.
     """
 
     _DEFAULT_SENSITIVE_KEYS: frozenset[str] = frozenset({
         "authorization",
         "token",
+        "access_token",
         "password",
         "secret",
         "api_key",
@@ -147,7 +148,7 @@ class TimeoutSampler:
         try:
             if isinstance(data, dict):
                 return {
-                    key: "***" if key.lower() in self.sensitive_keys else self._redact(value)
+                    key: "***" if isinstance(key, str) and key.lower() in self.sensitive_keys else self._redact(value)
                     for key, value in data.items()
                 }
             if isinstance(data, list):
@@ -155,6 +156,7 @@ class TimeoutSampler:
             if isinstance(data, tuple):
                 return tuple(self._redact(item) for item in data)
         except RecursionError:
+            LOGGER.warning("Redaction failed due to circular reference in data")
             return "<redaction failed: circular reference>"
         return data
 
@@ -304,6 +306,16 @@ def retry(
 ) -> Callable:
     """
     Decorator for TimeoutSampler, For usage see TimeoutSampler.
+
+    Args:
+        wait_timeout (int): Time in seconds to wait for func to return a value equating to True
+        sleep (int): Time in seconds between calls to func
+        exceptions_dict (dict): Exception handling definition
+        print_log (bool): Print elapsed time to log
+        print_func_log (bool): Add function call info to log
+        print_func_args (bool): Include function arguments in log
+        sensitive_keys (frozenset[str]): Additional keys to redact from logged kwargs (case-insensitive exact match).
+            Merged with the default sensitive keys.
 
     Example:
         from timeout_sampler import retry

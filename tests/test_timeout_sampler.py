@@ -308,3 +308,18 @@ class TestSensitiveKeyRedaction:
         assert "pos-secret" not in log_output, "Positional arg secret should be redacted"
         assert "visible" in log_output, "Non-sensitive positional arg should be visible"
         assert "***" in log_output, "Redacted placeholder should appear"
+
+    def test_non_string_dict_keys_not_crash(self):
+        """Dicts with non-string keys (int, tuple) should not crash _redact."""
+        sampler = TimeoutSampler(
+            wait_timeout=1,
+            sleep=1,
+            func=lambda: True,
+            print_log=False,
+            data={1: "int-key-value", (2, 3): "tuple-key-value", "password": "secret123"},  # pragma: allowlist secret
+        )
+        log_output = sampler._func_log
+        assert "int-key-value" in log_output, "Non-string key value should be visible"
+        assert "tuple-key-value" in log_output, "Tuple key value should be visible"
+        assert "secret123" not in log_output, "String sensitive key should still be redacted"
+        assert "***" in log_output, "Redacted placeholder should appear"

@@ -92,7 +92,7 @@ for sample in TimeoutSampler(
     wait_timeout=60,
     sleep=1,
     func=call_api,
-    sensitive_keys=frozenset({"Authorization", "x-custom-secret"}),
+    sensitive_keys=frozenset({"x-custom-secret"}),
     headers={"Authorization": "Bearer token", "x-custom-secret": "value"},  # pragma: allowlist secret
 ):
     if sample:
